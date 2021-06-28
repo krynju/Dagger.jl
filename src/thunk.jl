@@ -150,16 +150,10 @@ function Base.showerror(io::IO, ex::ThunkFailedException)
     Base.showerror(io, ex.ex)
 end
 
-"""
-    EagerThunk
-
-Returned from `spawn`/`@spawn` calls. Represents a task that is in the
-scheduler, potentially ready to execute, executing, or finished executing. May
-be `fetch`'d or `wait`'d on at any time.
-"""
-struct EagerThunk
-    future::ThunkFuture
+mutable struct EagerThunk
     uid::Int
+    future::ThunkFuture
+    ref::DRef
 end
 Base.isready(t::EagerThunk) = isready(t.future)
 Base.wait(t::EagerThunk) = wait(t.future)
@@ -173,14 +167,27 @@ end
 
 Spawns a task with `f` as the function and `args` as the arguments, returning
 an `EagerThunk`. Uses a scheduler running in the background to execute code.
+When finalized, cleans-up the associated `EagerThunk`.
 """
+mutable struct EagerThunkFinalizer
+    uid::Int
+    function EagerThunkFinalizer(uid)
+        x = new(uid)
+        finalizer(Sch.eager_cleanup, x)
+        x
+    end
+end
+
 function spawn(f, args...; kwargs...)
     if myid() == 1
         Dagger.Sch.init_eager()
-        future = ThunkFuture()
         uid = next_id()
-        put!(Dagger.Sch.EAGER_THUNK_CHAN, (future, uid, f, (args...,), (kwargs...,)))
-        EagerThunk(future, uid)
+        future = ThunkFuture()
+        ref = poolset(EagerThunkFinalizer(uid))
+        ev = Base.Event()
+        put!(Dagger.Sch.EAGER_THUNK_CHAN, (ev, future, uid, f, (args...,), (kwargs...,)))
+        wait(ev)
+        EagerThunk(uid, future, ref)
     else
         remotecall_fetch(spawn, 1, f, args...; kwargs...)
     end
