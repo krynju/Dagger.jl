@@ -1,10 +1,7 @@
 import Tables
 import DataFrames
 
-<<<<<<< HEAD
 import Base: fetch, filter
-=======
->>>>>>> bdc25f4ac097558a11e389f59cd22e377c53812c
 
 mutable struct DTable
     v::Vector{Dagger.EagerThunk}
