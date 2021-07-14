@@ -1,7 +1,10 @@
 import Tables
 import DataFrames
 
+<<<<<<< HEAD
 import Base: fetch, filter
+=======
+>>>>>>> bdc25f4ac097558a11e389f59cd22e377c53812c
 
 mutable struct DTable
     v::Vector{Dagger.EagerThunk}
@@ -19,6 +22,7 @@ function getrow(d::DTable, row)
     return Dagger.@spawn getindex(d.v[1], row, :)
 end
 
+<<<<<<< HEAD
 function apply(f, d::DTable)
    
 
@@ -33,3 +37,6 @@ function fetch(d::DTable)
 end
 
 export DTable, getrow, apply
+=======
+export DTable, getrow
+>>>>>>> bdc25f4ac097558a11e389f59cd22e377c53812c
