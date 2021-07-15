@@ -5,25 +5,30 @@ import Base: fetch, filter, map, setproperty!
 
 mutable struct DTable
     v::Vector{Dagger.EagerThunk}
-    cols::Vector{Symbol} 
-    schema::Tables.Schema
+    # cols::Vector{Symbol} 
+    # schema::Tables.Schema
 end
 
 
 
-function DTable(v::Vector{Dagger.EagerThunk})
-    names = Tables.columnnames(fetch(v[begin]))
-    cols = collect(Symbol, names)
-    schema = Tables.Schema(names, nothing)
-    DTable(v, cols, schema)
-end
+# function DTable(v::Vector{Dagger.EagerThunk})
+#     # names = Tables.columnnames(fetch(v[begin]))
+#     # cols = collect(Symbol, names)
+#     # schema = Tables.Schema(names, nothing)
+#     # DTable(v, cols, schema)
+#     DTable(v)
+# end
 
 
 function DTable(table::DataFrames.DataFrame; thunksize=10)
-    rows = Tables.rows(table)
-    n = length(rows)
-    v = [Dagger.@spawn DataFrames.DataFrame(rows[i:(i + thunksize - 1) % (n + 1)]) for i in 1:thunksize:n]
-    return DTable(v)
+    if (!Tables.istable(table))
+        throw("Provided input is not Tables.jl compatible.")
+    end
+    r = Dagger.@spawn Tables.rows(table)
+    n = DataFrames.nrow(table)
+    partition_rows = (x, l, r) -> getindex(x, l:r)
+    df_create = (rows,i) -> DataFrames.DataFrame( partition_rows(rows, i, (i + thunksize - 1) % (n + 1)))
+    return DTable([Dagger.@spawn df_create(r,i) for i in 1:thunksize:n])
 end
 
 function filter(f, d::DTable)
