@@ -3,10 +3,14 @@ import Tables
 
 import Base: fetch, filter, map
 
-struct DTable
-    chunks::Vector{Dagger.EagerThunk}
+const VTYPE = Vector{Union{Dagger.Chunk,Dagger.EagerThunk}}
 
-    DTable(chunks::Vector{Dagger.EagerThunk}) = new(chunks)
+struct DTable
+    chunks::VTYPE
+
+    DTable(chunks::VTYPE) = new(chunks)
+    DTable(chunks::Vector{Dagger.EagerThunk}) = new(VTYPE(chunks))
+    DTable(chunks::Vector{Dagger.Chunk}) = new(VTYPE(chunks))
 end
 
 function DTable(table; chunksize=10_000)
@@ -15,9 +19,9 @@ function DTable(table; chunksize=10_000)
     end
     create_chunk = (rows) -> begin 
         df = DataFrames.DataFrame(rows)
-        return Dagger.@spawn (()->df)()
-    end 
-    chunks = Vector{Dagger.EagerThunk}()
+        return Dagger.tochunk(df)
+    end
+    chunks = Vector{Dagger.Chunk}()
 
     it = Tables.rows(table)
     buffer = Vector{eltype(it)}()
@@ -42,22 +46,35 @@ function DTable(table; chunksize=10_000)
     return DTable(chunks)
 end
 
+function DTable(files::Vector{String}, loader_function)
+    chunks = Vector{Dagger.Chunk}()
+    sizehint!(chunks, length(files))
+
+    _load = file -> loader_function(file)
+    create_chunk = (rows) -> begin 
+        df = DataFrames.DataFrame(rows)
+        return Dagger.tochunk(df)
+    end
+
+    push!.(Ref(chunks), create_chunk.(_load.(files)))
+    return DTable(chunks)
+end
+    
 function filter(f, d::DTable)
     _f = x -> Dagger.@spawn filter(f, x)
     DTable(map(_f, d.chunks))
 end
 
 function fetch(d::DTable)
-    _fetch_thunk_vector(d.chunks)
+    vcat(_retrieve.(d.chunks)...)
 end
 
-function _fetch_thunk_vector(x)
-    vcat(fetch.(x)...)
-end
+_retrieve(x::Dagger.EagerThunk) = fetch(x)
+_retrieve(x::Dagger.Chunk) = collect(x)
 
 function fetchcolumn(d::DTable, s::Symbol)
     _f = (x) -> Dagger.@spawn getindex(x, :, s)
-    _fetch_thunk_vector(map(_f, d.chunks))
+    fetch(DTable(map(_f, d.chunks)))
 end
 
 function map(f, d::DTable)
