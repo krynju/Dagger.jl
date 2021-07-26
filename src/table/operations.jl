@@ -20,10 +20,15 @@ function reduce(f, d::DTableRows; init)
    
     chunk_results = [Dagger.@spawn chunk_wrap(c) for c in d.dtable.chunks]
     
-    # this is dumb
+    # this is dumb, probably a better way to do this
     # it gets the function used to aggregate x and y in a reduction function 
     # eg. for: (x,y) -> x + y; this thing will return Base.+ 
-    ast_id_of_ret_val = Base.uncompressed_ast(methods(f).ms[1]).code[end].val.id
+    return_line = Base.uncompressed_ast(methods(f).ms[1]).code[end]
+    if hasproperty(return_line, :val) 
+        ast_id_of_ret_val = return_line.val.id # julia 1.6+
+    else
+        ast_id_of_ret_val= return_line.args[1].id # julia 1.5
+    end
     ast_agg_op = Base.uncompressed_ast(methods(f).ms[1]).code[ast_id_of_ret_val].args[1]
     chunk_aggregate_fun = getfield(ast_agg_op.mod, ast_agg_op.name)
     #
