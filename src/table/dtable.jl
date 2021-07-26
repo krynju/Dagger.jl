@@ -1,7 +1,7 @@
 import DataFrames
 import Tables
 
-import Base: fetch, filter, map
+import Base: fetch
 
 const VTYPE = Vector{Union{Dagger.Chunk,Dagger.EagerThunk}}
 
@@ -12,6 +12,9 @@ struct DTable
     DTable(chunks::Vector{Dagger.EagerThunk}) = new(VTYPE(chunks))
     DTable(chunks::Vector{Dagger.Chunk}) = new(VTYPE(chunks))
 end
+
+include("iterators.jl")
+include("operations.jl")
 
 function DTable(table; chunksize=10_000)
     if !Tables.istable(table)
@@ -59,11 +62,6 @@ function DTable(files::Vector{String}, loader_function)
     push!.(Ref(chunks), create_chunk.(_load.(files)))
     return DTable(chunks)
 end
-    
-function filter(f, d::DTable)
-    _f = x -> Dagger.@spawn filter(f, x)
-    DTable(map(_f, d.chunks))
-end
 
 function fetch(d::DTable)
     vcat(_retrieve.(d.chunks)...)
@@ -72,15 +70,9 @@ end
 _retrieve(x::Dagger.EagerThunk) = fetch(x)
 _retrieve(x::Dagger.Chunk) = collect(x)
 
-function fetchcolumn(d::DTable, s::Symbol)
+function getcolumn(d::DTable, s::Symbol)
     _f = (x) -> Dagger.@spawn getindex(x, :, s)
-    fetch(DTable(map(_f, d.chunks)))
-end
-
-function map(f, d::DTable)
-    thunk_f = x -> Dagger.@spawn eachrow(x) # eachrow baked in here for now
-    row_f = x -> Dagger.@spawn map(f, thunk_f(x))
-    DTable(map(row_f, d.chunks))
+    DTable(map(_f, d.chunks))
 end
 
 export DTable
