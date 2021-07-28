@@ -1,4 +1,4 @@
-import DataFrames
+import .DataFrames
 import Tables
 
 import Base: fetch

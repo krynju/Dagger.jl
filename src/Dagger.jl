@@ -46,9 +46,6 @@ include("array/sort.jl")
 
 include("ui/graph.jl")
 
-# Distributed table 
-include("table/dtable.jl")
-
 function __init__()
     @require Luxor="ae8d54c2-7ccd-5906-9d76-62fc9837b5bc" begin
         # Gantt chart renderer
@@ -67,6 +64,10 @@ function __init__()
             # Video generator
             include("ui/video.jl")
         end
+    end
+    @require DataFrames="a93c6f00-e57d-5684-b7b6-d8193f3e46c0" begin
+         # Distributed table 
+         include("table/dtable.jl")
     end
     @static if VERSION >= v"1.3.0-DEV.573"
         for tid in 1:Threads.nthreads()
