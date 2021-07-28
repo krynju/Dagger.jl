@@ -31,7 +31,7 @@ using CSV
         size = 15_000
         io = IOBuffer()
         CSV.write(io, [(a = 10, b = 20) for i in 1:size])
-        d = CSV.read(take!(io), DTable)
+        d = CSV.read(take!(io), (csv-> DTable(csv; chunksize=1_000)))
         CSV.write(io, [(a = 10, b = 20) for i in 1:size])
         # or
         d2 = DTable(CSV.File(take!(io)); chunksize=1_000)
