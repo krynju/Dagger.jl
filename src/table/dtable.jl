@@ -1,7 +1,7 @@
 import .DataFrames
 import Tables
 
-import Base: fetch
+import Base: fetch, extrema
 
 const VTYPE = Vector{Union{Dagger.Chunk,Dagger.EagerThunk}}
 
@@ -16,12 +16,14 @@ the underlying partitions was applied to it (currently only `filter`).
 
 Underlying partitions should always be `DataFrame` structures.
 """
-struct DTable
+mutable struct DTable
     chunks::VTYPE
+    schema::Union{Nothing,Tables.Schema}
 
-    DTable(chunks::VTYPE) = new(chunks)
-    DTable(chunks::Vector{Dagger.EagerThunk}) = new(VTYPE(chunks))
-    DTable(chunks::Vector{Dagger.Chunk}) = new(VTYPE(chunks))
+    DTable(chunks::VTYPE) = new(chunks, nothing)
+    DTable(chunks::VTYPE, schema::Tables.Schema) = new(chunks, schema)
+    DTable(chunks::Vector{Dagger.EagerThunk}, args...) = new(VTYPE(chunks), args...)
+    DTable(chunks::Vector{Dagger.Chunk}, args...) = new(VTYPE(chunks), args...)
 end
 
 include("iterators.jl")
@@ -61,10 +63,12 @@ function DTable(table; chunksize)
         end
     end
     if counter > 0
-        push!(chunks, create_chunk(buffer))
+    push!(chunks, create_chunk(buffer))
         empty!(buffer)
     end
-    return DTable(chunks)
+        
+    schema = Tables.schema(it)
+    return DTable(chunks, schema)
 end
 
 """
@@ -84,14 +88,21 @@ function DTable(files::Vector{String}, loader_function)
     chunks = Vector{Dagger.Chunk}()
     sizehint!(chunks, length(files))
 
+    schema = nothing
+
     _load = file -> loader_function(file)
     create_chunk = (rows) -> begin 
+        if schema === nothing 
+            schema = Tables.schema(rows)
+        elseif schema != Tables.schema(rows)
+            throw(ArgumentError("Files provided as input have various schemas. Currently not supported."))
+        end
         df = DataFrames.DataFrame(rows)
         return Dagger.tochunk(df)
     end
 
     push!.(Ref(chunks), create_chunk.(_load.(files)))
-    return DTable(chunks)
+    return DTable(chunks, schema)
 end
 
 """
@@ -113,4 +124,24 @@ function getcolumn(d::DTable, s::Symbol)
     Dagger.@spawn ((r...) -> vcat((r)...))(map(_f, d.chunks)...)
 end
 
+function Tables.schema(d::DTable)
+    if d.schema === nothing
+        anychunk = d.chunks[begin]
+        s = Dagger.@spawn Tables.schema(anychunk)
+        d.schema = fetch(s)
+    end
+    return d.schema
+end
+
+function extrema(d::DTable, col)
+    chunk_wrap = chunk -> extrema(getindex(chunk, :, col))
+    extremas = [Dagger.@spawn chunk_wrap(c) for c in d.chunks]
+    extremas_wrap = (e...) -> begin
+        _min = minimum(getindex.(e, 1))
+        _max = maximum(getindex.(e, 2))
+        (_min, _max)
+    end
+    Dagger.@spawn extremas_wrap(extremas...)
+end
+    
 export DTable

@@ -54,7 +54,7 @@ function reduce(f, d::DTableRows; init)
         if hasproperty(return_line, :val) 
             ast_id_of_ret_val = return_line.val.id # julia 1.6+
         else
-            ast_id_of_ret_val= return_line.args[1].id # julia 1.5
+            ast_id_of_ret_val = return_line.args[1].id # julia 1.5
         end
         ast_agg_op = ast_f.code[ast_id_of_ret_val].args[1]
         getfield(ast_agg_op.mod, ast_agg_op.name)
@@ -80,6 +80,62 @@ Returns a filtered DTable that can be processed further.
 ```
 """
 function filter(f, d::DTable)
-    chunk_wrap = chunk -> Dagger.@spawn filter(f, chunk)
-    DTable([chunk_wrap(c) for c in d.chunks])
+    chunk_wrap = chunk -> Dagger.@spawn DataFrames.filter(f, chunk)
+    DTable([chunk_wrap(c) for c in d.chunks], d.schema)
+end
+
+function select(d::DTable, args...; kwargs...)
+    select_wrap = chunk ->  DataFrames.select(chunk, args...; kwargs...)
+    chunk_wrap = chunk -> Dagger.@spawn select_wrap(chunk)
+    DTable([chunk_wrap(c) for c in d.chunks], nothing)
+end
+
+function _temp(d::DTable, col; npartitions=-1)
+    partition_heuristic = 2 * length(d.chunks)
+    if npartitions < 0 
+        npartitions = partition_heuristic()
+    end
+    e = fetch(Dagger.extrema(d, col))
+
+    parts = range(e[1], e[2], length=npartitions)
+
+    chunk_wrap = (chunk, l, r)  -> begin
+        if l === nothing
+            chunk[(getindex(chunk, :, col) .<= r),:]
+        elseif r === nothing
+            chunk[(l .< getindex(chunk, :, col)),:]
+        else
+            chunk[(l .< getindex(chunk, :, col)) .& (getindex(chunk, :, col) .<= r),:]
+        end
+    end
+    v = Vector{Dagger.EagerThunk}()
+    
+
+    intervals = [
+        (nothing, parts[begin + 1]),
+        [(parts[i], parts[i + 1]) for i in 2:length(parts) - 2]...,
+        (parts[end-1], nothing)
+    ]
+
+    index = Dict{eltype(intervals), Vector{Int}}()
+
+
+    for i in intervals
+        l = length(v)
+        append!(v, [Dagger.@spawn chunk_wrap(c, i[1], i[2]) for c in d.chunks])
+        index[i] = collect(l + 1:length(v))
+    end
+    
+    squash = (chunks...) -> vcat(chunks...)
+    v2 = Vector{Dagger.EagerThunk}()
+
+    for k in enumerate(keys(index))
+        
+        
+        c = getindex.(Ref(v), index[k[2]])
+        push!(v2, Dagger.@spawn squash(c...))
+        index[k[2]] = [k[1]]
+    end
+
+    DTable(v2, d.schema)
 end
