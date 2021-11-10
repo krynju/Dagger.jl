@@ -251,3 +251,32 @@ function filter(f, gd::GDTable)
     d = filter(f, gd.dtable)
     GDTable(d, gd.cols, gd.index)
 end
+
+
+"""
+    mapreduce
+
+"""
+function mapreduce(
+    f_map,
+    f_reduce,
+    d::DTable;
+    cols=nothing::Union{Nothing, Vector{Symbol}},
+    init=Base._InitialValue())
+
+end
+
+
+"""
+    mapreduce
+
+"""
+function mapreduce(
+    f_map,
+    f_reduce,
+    d::GDTable;
+    cols=nothing::Union{Nothing, Vector{Symbol}},
+    prefix::String="result_",
+    init=Base._InitialValue())
+
+end
